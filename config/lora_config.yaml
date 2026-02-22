@@ -1,0 +1,55 @@
+# LoRA configuration for Phi-3-mini-4k-instruct fine-tuning on LIAR (binary)
+# Used by finetune.py via peft.LoraConfig
+
+model:
+  name: "microsoft/Phi-3-mini-4k-instruct"
+  torch_dtype: "float16"           # use "float32" for CPU-only runs
+  trust_remote_code: true          # required for Phi-3 custom architecture
+
+lora:
+  r: 16                            # rank — higher = more capacity, more params
+  lora_alpha: 32                   # scaling = alpha/r; 2x rank is standard
+  target_modules:                  # attention projections only
+    - "q_proj"
+    - "k_proj"
+    - "v_proj"
+    - "o_proj"
+  lora_dropout: 0.05
+  bias: "none"
+  task_type: "CAUSAL_LM"
+
+qlora:                             # used when --quantize flag is set
+  load_in_4bit: true
+  bnb_4bit_quant_type: "nf4"
+  bnb_4bit_compute_dtype: "float16"
+  bnb_4bit_use_double_quant: true
+
+training:
+  output_dir: "outputs/phi3-lora-liar"
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  per_device_eval_batch_size: 8
+  gradient_accumulation_steps: 4   # effective batch size = 16
+  learning_rate: 2.0e-4
+  lr_scheduler_type: "cosine"
+  warmup_ratio: 0.05
+  weight_decay: 0.01
+  fp16: true                       # set false for CPU or non-CUDA devices
+  logging_steps: 50
+  eval_strategy: "epoch"
+  save_strategy: "epoch"
+  load_best_model_at_end: true
+  metric_for_best_model: "eval_f1_macro"
+  seed: 42
+
+data:
+  max_seq_length: 256              # LIAR claims are short; 256 is sufficient
+  label_column: "label_binary"
+  text_column: "statement"
+  num_labels: 2
+  label2id:
+    "FALSE": 0
+    "TRUE": 1
+  id2label:
+    0: "FALSE"
+    1: "TRUE"
