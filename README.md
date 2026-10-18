@@ -2,6 +2,21 @@
 
 Fine-tuning [Microsoft Phi-3-mini-4k-instruct](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct) on the [LIAR dataset](https://huggingface.co/datasets/liar) for automated claim verification — using LoRA/QLoRA via HuggingFace PEFT for memory-efficient training on consumer hardware.
 
+## Quickstart
+
+```bash
+uv sync
+uv run data/prepare_dataset.py
+
+# Baseline without any training — CPU-friendly with a subset:
+uv run evaluate.py --zero-shot --limit 200
+
+# Inference with the fine-tuned checkpoint (see "Publish the checkpoint"):
+uv run inference.py --claim "The unemployment rate reached a 50-year low last quarter."
+```
+
+Full training workflow below.
+
 ---
 
 ## Motivation
@@ -71,11 +86,12 @@ Fine-tuning provides a **+19.5pp accuracy gain** over the zero-shot baseline on 
 
 | Component | Tool |
 |---|---|
-| Base model | `microsoft/Phi-3-mini-4k-instruct` |
-| Fine-tuning framework | HuggingFace `transformers` + `peft` |
-| Dataset | `datasets` (HuggingFace Hub) |
-| Evaluation | `evaluate` + `scikit-learn` |
+| Base model | `microsoft/Phi-3-mini-4k-instruct` (Hugging Face Hub) |
+| Fine-tuning framework | Hugging Face `transformers` (`Trainer`) + `peft` (LoRA/QLoRA adapters) |
+| Dataset | `datasets` — loads the LIAR dataset straight from the Hugging Face Hub |
+| Evaluation | `scikit-learn` classification metrics |
 | Quantization (optional) | `bitsandbytes` (QLoRA, 4-bit NF4) |
+| Checkpoint hosting | Hugging Face Hub (`antoinelucasfra/phi3-liar-lora`) |
 | Dependency management | `uv` |
 
 ---
@@ -83,8 +99,8 @@ Fine-tuning provides a **+19.5pp accuracy gain** over the zero-shot baseline on 
 ## Installation
 
 ```bash
-git clone https://github.com/antoinelucasfra/llm-finetuning-phi3
-cd llm-finetuning-phi3
+git clone https://github.com/antoinelucasfra/fake-news-detection.git
+cd fake-news-detection
 uv sync
 ```
 
@@ -128,12 +144,42 @@ Prints accuracy, F1, and per-class classification report. Saves results to `outp
 uv run inference.py --claim "The unemployment rate reached a 50-year low last quarter."
 ```
 
+By default this loads the published checkpoint from the Hugging Face Hub
+(`antoinelucasfra/phi3-liar-lora`); pass `--checkpoint <path-or-id>` to use a
+local or different checkpoint. QLoRA runs (`--quantize`) save a LoRA adapter
+only — merge it with the base model before serving, or load it with PEFT.
+
+### Publish the checkpoint
+
+After training, make the results reproducible for readers by uploading the
+merged checkpoint (no GPU needed on their side):
+
+```bash
+uv run huggingface-cli login
+uv run huggingface-cli upload antoinelucasfra/phi3-liar-lora outputs/phi3-lora-liar . --repo-type model
+```
+
+<!-- TODO: upload the checkpoint, then link the Hub model here. -->
+
+## Demo
+
+<!-- TODO: record a real run (evaluate/inference terminal session) and embed
+     the GIF here, e.g. docs/demo.gif. Nothing is shown until a real recording
+     exists. -->
+
+Reproduce locally:
+
+```bash
+uv run evaluate.py --zero-shot --limit 200
+uv run inference.py --claim "The unemployment rate reached a 50-year low last quarter."
+```
+
 ---
 
 ## Project structure
 
 ```
-llm-finetuning-phi3/
+fake-news-detection/
 ├── pyproject.toml              # dependencies + ruff config
 ├── finetune.py                 # LoRA/QLoRA training script
 ├── evaluate.py                 # post-training evaluation
