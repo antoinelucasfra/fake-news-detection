@@ -20,15 +20,19 @@ def test_plain_true_false():
 def test_qualified_answers():
     assert parse_true_false("True.") == 1
     assert parse_true_false('"True"') == 1
-    assert parse_true_false("Probably TRUE, the data supports it.") == 1
     assert parse_true_false("FALSE. The claim is exaggerated.") == 0
+
+
+def test_hedged_or_reversed_answers_default_to_false():
+    # First-word policy: hedged answers like "Probably TRUE..." default to FALSE
+    assert parse_true_false("Probably TRUE, the data supports it.") == 0
+    assert parse_true_false("It is not true.") == 0
 
 
 def test_negations_do_not_count_as_true():
     # Substring matching would misread these as TRUE
     assert parse_true_false("NOT TRUE") == 0
     assert parse_true_false("UNTRUE") == 0
-    assert parse_true_false("It is not true.") == 0
 
 
 def test_empty_or_ambiguous_defaults_to_false():
