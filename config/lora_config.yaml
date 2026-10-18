@@ -16,7 +16,6 @@ lora:
     - "o_proj"
   lora_dropout: 0.05
   bias: "none"
-  task_type: "CAUSAL_LM"
 
 qlora:                             # used when --quantize flag is set
   load_in_4bit: true
@@ -44,8 +43,6 @@ training:
 
 data:
   max_seq_length: 256              # LIAR claims are short; 256 is sufficient
-  label_column: "label_binary"
-  text_column: "statement"
   num_labels: 2
   label2id:
     "FALSE": 0

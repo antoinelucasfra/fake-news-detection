@@ -14,16 +14,18 @@ Requirements:
 """
 
 import argparse
-from pathlib import Path
 
-import pandas as pd
+import numpy as np
+import polars as pl
 import torch
 import yaml
 from datasets import Dataset
 from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+from sklearn.metrics import accuracy_score, f1_score
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    DataCollatorWithPadding,
     Trainer,
     TrainingArguments,
 )
@@ -35,8 +37,8 @@ def load_config(config_path: str = "config/lora_config.yaml") -> dict:
 
 
 def load_split(split: str) -> Dataset:
-    df = pd.read_csv(f"data/processed/{split}.csv")
-    return Dataset.from_pandas(df[["statement", "label_binary"]])
+    df = pl.read_csv(f"data/processed/{split}.csv")
+    return Dataset.from_dict(df.select("statement", "label_binary").to_dict(as_series=False))
 
 
 def build_label_mappings(cfg: dict) -> tuple[dict, dict]:
@@ -50,9 +52,10 @@ def tokenize_dataset(dataset: Dataset, tokenizer, max_length: int) -> Dataset:
         return tokenizer(
             batch["statement"],
             truncation=True,
-            padding="max_length",
             max_length=max_length,
         )
+
+    # chisle: dynamic padding via DataCollatorWithPadding — no max_length padding
 
     return dataset.map(tokenize, batched=True, remove_columns=["statement"])
 
@@ -65,9 +68,6 @@ def encode_labels(dataset: Dataset, label2id: dict) -> Dataset:
 
 
 def compute_metrics(eval_pred):
-    import numpy as np
-    from sklearn.metrics import accuracy_score, f1_score
-
     logits, labels = eval_pred
     predictions = np.argmax(logits, axis=-1)
     return {
@@ -120,9 +120,8 @@ def main(quantize: bool = False) -> None:
     else:
         model_kwargs["torch_dtype"] = getattr(torch, model_cfg["torch_dtype"])
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_cfg["name"], **model_kwargs
-    )
+    model = AutoModelForSequenceClassification.from_pretrained(model_cfg["name"], **model_kwargs)
+    model.config.pad_token_id = tokenizer.pad_token_id
 
     if quantize:
         model = prepare_model_for_kbit_training(model)
@@ -177,13 +176,23 @@ def main(quantize: bool = False) -> None:
         train_dataset=train_ds,
         eval_dataset=val_ds,
         compute_metrics=compute_metrics,
+        data_collator=DataCollatorWithPadding(tokenizer=tokenizer),
     )
 
     print("Starting training...")
     trainer.train()
 
     print(f"Saving best model to {train_cfg['output_dir']}")
-    trainer.save_model(train_cfg["output_dir"])
+    if quantize:
+        # 4-bit base cannot be merged in memory — save the adapter only;
+        # load it later on top of the base model (see README).
+        model.save_pretrained(train_cfg["output_dir"])
+        print("QLoRA run: LoRA adapter saved (not merged with the quantized base).")
+    else:
+        # Merge adapter into the base weights so the checkpoint loads directly
+        # with AutoModelForSequenceClassification.from_pretrained(dir).
+        merged = model.merge_and_unload()
+        merged.save_pretrained(train_cfg["output_dir"])
     tokenizer.save_pretrained(train_cfg["output_dir"])
     print("Done.")
 
