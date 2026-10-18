@@ -15,14 +15,20 @@ Output:
 
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 from datasets import load_dataset
-
 
 # Binary label mapping
 # FALSE: pants-fire, false, barely-true  (id < 3)
 # TRUE:  half-true, mostly-true, true    (id >= 3)
-LIAR_LABELS = ["pants-fire", "false", "barely-true", "half-true", "mostly-true", "true"]
+LIAR_LABELS = {
+    0: "pants-fire",
+    1: "false",
+    2: "barely-true",
+    3: "half-true",
+    4: "mostly-true",
+    5: "true",
+}
 
 BINARY_MAP = {
     "pants-fire": "FALSE",
@@ -43,22 +49,25 @@ def prepare() -> None:
 
     for split_name in ["train", "validation", "test"]:
         split = dataset[split_name]
-        df = split.to_pandas()
+        df = pl.DataFrame(split.to_dict())
 
         # LIAR label column is integer 0–5; map to string then binary
-        df["label_str"] = df["label"].apply(lambda x: LIAR_LABELS[x])
-        df["label_binary"] = df["label_str"].map(BINARY_MAP)
+        df = df.with_columns(
+            pl.col("label").replace_strict(LIAR_LABELS).alias("label_str"),
+            pl.col("label_str").replace_strict(BINARY_MAP).alias("label_binary"),
+        )
 
         # Keep only the columns we need
-        out = df[["statement", "label_str", "label_binary"]].copy()
-        out = out.dropna(subset=["statement", "label_binary"])
+        out = df.select("statement", "label_str", "label_binary").drop_nulls(
+            ["statement", "label_binary"]
+        )
 
         out_path = output_dir / f"{split_name}.csv"
-        out.to_csv(out_path, index=False)
+        out.write_csv(out_path)
 
         n_false = (out["label_binary"] == "FALSE").sum()
         n_true = (out["label_binary"] == "TRUE").sum()
-        print(f"  {split_name}: {len(out)} examples  |  FALSE={n_false}  TRUE={n_true}  → {out_path}")
+        print(f"  {split_name}: {len(out)} examples | FALSE={n_false} TRUE={n_true} → {out_path}")
 
     print("\nDataset preparation complete.")
 
