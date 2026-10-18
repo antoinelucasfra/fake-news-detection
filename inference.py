@@ -14,19 +14,27 @@ import argparse
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-
-DEFAULT_CHECKPOINT = "outputs/phi3-lora-liar/"
+# chisle: placeholder Hub id — update after uploading the checkpoint (see README);
+# --checkpoint overrides for local dirs.
+DEFAULT_CHECKPOINT = "antoinelucasfra/phi3-liar-lora"
 MAX_LENGTH = 256
 
 
 def load_model(checkpoint_dir: str):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     tokenizer = AutoTokenizer.from_pretrained(checkpoint_dir, trust_remote_code=True)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        checkpoint_dir,
-        trust_remote_code=True,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-    ).to(device)
+    try:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            checkpoint_dir,
+            trust_remote_code=True,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+        ).to(device)
+    except OSError as e:
+        raise SystemExit(
+            f"Checkpoint '{checkpoint_dir}' could not be loaded. Either point --checkpoint "
+            "at a local trained checkpoint, publish the checkpoint to the HF Hub (see "
+            "README), or run evaluate.py --zero-shot for the no-checkpoint baseline."
+        ) from e
     model.eval()
     return model, tokenizer, device
 
@@ -87,7 +95,8 @@ def main() -> None:
                 result = classify(claim, model, tokenizer, device)
                 print(f"  Label      : {result['label']}")
                 print(f"  Confidence : {result['confidence']:.2%}")
-                print(f"  Probs      : FALSE={result['probabilities']['FALSE']:.3f}  TRUE={result['probabilities']['TRUE']:.3f}")
+                probs = result["probabilities"]
+                print(f"  Probs      : FALSE={probs['FALSE']:.3f}  TRUE={probs['TRUE']:.3f}")
                 print()
             except KeyboardInterrupt:
                 print("\nExiting.")
@@ -97,7 +106,8 @@ def main() -> None:
         print(f"Claim      : {args.claim}")
         print(f"Label      : {result['label']}")
         print(f"Confidence : {result['confidence']:.2%}")
-        print(f"Probs      : FALSE={result['probabilities']['FALSE']:.3f}  TRUE={result['probabilities']['TRUE']:.3f}")
+        probs = result["probabilities"]
+        print(f"Probs      : FALSE={probs['FALSE']:.3f}  TRUE={probs['TRUE']:.3f}")
     else:
         parser.print_help()
 
